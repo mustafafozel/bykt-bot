@@ -3,7 +3,7 @@ import time
 import requests
 import json
 import urllib.parse
-import traceback # Hata detayını görmek için
+import traceback
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
@@ -22,7 +22,6 @@ HAFIZA_DOSYASI = "hatirlatilanlar.txt"
 def telegrama_gonder_foto(resim_url, mesaj, buton_linki, marka_adi):
     send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     
-    # Kanal linkini güvenli oluştur
     clean_kanal_id = KANAL_ID.replace('@','')
     kanal_paylas_linki = f"https://t.me/share/url?url=https://t.me/{clean_kanal_id}"
     
@@ -48,82 +47,70 @@ def telegrama_gonder_foto(resim_url, mesaj, buton_linki, marka_adi):
             print("✅ BAŞARILI: Mesaj iletildi.")
         else:
              print(f"⚠️ Telegram Hatası: {response.text}")
-             # Eğer resim yüzünden hata verdiyse, sadece metin gönder
              if "Wrong file identifier" in response.text or "image" in response.text:
-                 print("🔄 Resim hatalı olduğu için sadece metin deneniyor...")
+                 print("🔄 Resim hatalı, sadece metin gönderiliyor...")
                  requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
                                data={"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown"})
-
     except Exception as e:
         print(f"Bağlantı Hatası: {e}")
 
-# --- DETAYLARI ÇEKME (ESNEK MOD) ---
+# --- DETAYLARI ÇEKME ---
 def detaylari_getir(driver, link):
     print(f"🕵️‍♂️ Detaylara gidiliyor: {link}")
     driver.get(link)
-    
-    # Bekleme süresini azalttık, takılmasın
     wait = WebDriverWait(driver, 10)
     
-    # Varsayılan Değerler (Hata olursa bunlar gidecek)
     logo_url = "https://bykt.org/favicon.ico"
     sebep_metni = "Detaylı bilgi için butona tıklayınız."
     durum_emoji = "❓"
     durum_metni = "Belirtilmemiş"
 
     try:
-        # 1. LOGO (Daha genel arama)
+        # LOGO
         try:
-            # Önce spesifik ara, bulamazsan genel 'img' ara
-            logo_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img.object-contain")))
+            logo_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img.w-20.h-20.object-contain")))
             src = logo_element.get_attribute("src")
-            if src and "svg" not in src: # SVG hatalarını engelle
-                logo_url = src
+            if src and "svg" not in src: logo_url = src
         except:
-            print("⚠️ Logo bulunamadı, varsayılan kullanılacak.")
+            pass # Varsayılan kalır
 
-        # 2. AÇIKLAMA
+        # AÇIKLAMA
         try:
-            # Sayfadaki uzun paragrafları bul
-            paragraphs = driver.find_elements(By.TAG_NAME, "p")
-            for p in paragraphs:
-                text = p.text.strip()
-                # 50 karakterden uzun ilk paragrafı açıklama olarak al
-                if len(text) > 50:
-                    sebep_metni = text[:600] + "..."
-                    break
+            aciklama = driver.find_element(By.CSS_SELECTOR, "p.whitespace-pre-line")
+            text = aciklama.text.strip()
+            if text: sebep_metni = text[:600] + "..." if len(text) > 600 else text
         except:
             pass
 
-        # 3. DURUM (Sayfa kaynağında metin arama - En garantisi)
+        # DURUM
         try:
-            page_source = driver.page_source
-            if "Kesin Boykot" in page_source:
+            source = driver.page_source
+            if "Kesin Boykot" in source:
                 durum_emoji = "🔴"
                 durum_metni = "KESİN BOYKOT"
-            elif "İnsafa Bağlı" in page_source:
+            elif "İnsafa Bağlı" in source:
                 durum_emoji = "🟠"
                 durum_metni = "İNSAFA BAĞLI"
-            elif "Alınabilir" in page_source:
+            elif "Alınabilir" in source:
                 durum_emoji = "🟢"
                 durum_metni = "ALINABİLİR"
         except:
             pass
 
     except Exception as e:
-        print(f"⚠️ Detay çekilirken önemsiz bir hata oldu: {e}")
+        print(f"⚠️ Detay çekme uyarısı: {e}")
 
     return logo_url, sebep_metni, durum_emoji, durum_metni
 
 def hatirlat():
-    print("🌍 Hatırlatıcı Başlıyor...")
+    print("🌍 Hatırlatıcı Başlıyor (Garantili Mod)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080") # Ekran boyutu hatayı çözebilir
+    chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36")
 
     driver = None
@@ -132,31 +119,35 @@ def hatirlat():
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
         driver.get(URL)
         
-        # Sayfanın yüklenmesi için kesin bekleme
-        time.sleep(5) 
+        wait = WebDriverWait(driver, 20)
         
-        # Linkleri topla
-        # CSS Selector yerine XPath kullanıyoruz (Daha sağlam)
-        link_elementleri = driver.find_elements(By.XPATH, "//a[contains(@href, '?marka=')]")
+        # --- DÜZELTME BURADA ---
+        # Önce sayfanın yüklendiğinden emin olmak için 'h3' etiketini bekle
+        print("⏳ Markaların yüklenmesi bekleniyor...")
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h3.text-lg")))
+        
+        # Şimdi linkleri 'CSS Selector' ile topla (Bu yöntem daha önce çalışıyordu)
+        # href içinde 'marka=' geçen tüm a etiketlerini al
+        link_elementleri = driver.find_elements(By.CSS_SELECTOR, "a[href*='marka=']")
         
         site_listesi = []
         for eleman in link_elementleri:
             try:
                 link = eleman.get_attribute("href")
-                # Linkin içindeki herhangi bir H3 başlığını al
-                ad = eleman.find_element(By.TAG_NAME, "h3").text.strip()
+                # Linkin içindeki h3'ü bul
+                ad = eleman.find_element(By.CSS_SELECTOR, "h3.text-lg").text.strip()
                 if ad and link:
                     site_listesi.append((ad, link))
             except:
-                continue
+                continue # Bazı linklerde h3 olmayabilir, geç
 
         print(f"✅ Toplam {len(site_listesi)} marka bulundu.")
         
         if not site_listesi:
-            print("❌ HATA: Siteden marka çekilemedi!")
+            print("❌ HATA: Listelenen marka sayısı 0! CSS Selector uymadı.")
             return
 
-        # --- SIRA KİMDE? ---
+        # HAFIZA İŞLEMLERİ
         hatirlatilanlar = []
         if os.path.exists(HAFIZA_DOSYASI):
             with open(HAFIZA_DOSYASI, "r", encoding="utf-8") as f:
@@ -180,10 +171,10 @@ def hatirlat():
         
         print(f"🎯 Seçilen: {marka_adi}")
 
-        # Detayları çek
+        # DETAYLARI ÇEK
         logo, sebep, durum_ikon, durum_yazi = detaylari_getir(driver, marka_linki)
 
-        # Mesajı hazırla
+        # MESAJ
         mesaj = (
             f"🎗 **GÜNLÜK HATIRLATMA**\n\n"
             f"Unutmayalım! ⚠️\n\n"
@@ -196,14 +187,14 @@ def hatirlat():
 
         telegrama_gonder_foto(logo, mesaj, marka_linki, marka_adi)
 
-        # Kaydet
+        # KAYDET
         mod = "w" if sifirlama_yapildi else "a"
         with open(HAFIZA_DOSYASI, mod, encoding="utf-8") as f:
             f.write(marka_adi + "\n")
 
     except Exception as e:
         print("❌ KRİTİK HATA:")
-        traceback.print_exc() # Hatanın tam yerini gösterir
+        traceback.print_exc()
     finally:
         if driver: driver.quit()
 
