@@ -44,47 +44,43 @@ def telegrama_gonder_foto(resim_url, mesaj, buton_linki, marka_adi):
         response = requests.post(send_url, data=data)
         if response.status_code != 200:
              print(f"⚠️ Telegram Hatası: {response.text}")
-             # Resim hatası varsa sadece metin gönder
              if "Wrong file identifier" in response.text or "image" in response.text:
                  requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
                                data={"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown"})
     except Exception as e:
         print(f"Bağlantı Hatası: {e}")
 
-# --- DETAYLARI ÇEKME (Senin Verdiğin HTML Kodlarına Göre) ---
+# --- DETAYLARI ÇEKME ---
 def detaylari_getir(driver, link):
     print(f"🕵️‍♂️ Detaylara gidiliyor: {link}")
     driver.get(link)
     wait = WebDriverWait(driver, 15)
     
-    # Varsayılanlar
     logo_url = "https://bykt.org/favicon.ico"
     sebep_metni = "Detaylı bilgi için butona tıklayınız."
     durum_emoji = "❓"
     durum_metni = "Belirtilmemiş"
 
     try:
-        # 1. LOGO: class="w-20 h-20 rounded-lg object-contain..."
+        # 1. LOGO: (Verdiğin HTML yapısı)
         try:
             logo_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img.w-20.h-20.object-contain")))
             src = logo_element.get_attribute("src")
             if src: logo_url = src
         except:
-            print("⚠️ Logo bulunamadı.")
+            pass
 
-        # 2. AÇIKLAMA: class="... whitespace-pre-line"
+        # 2. AÇIKLAMA: (Verdiğin HTML yapısı)
         try:
-            # whitespace-pre-line sınıfını arıyoruz
             aciklama = driver.find_element(By.CSS_SELECTOR, "p.whitespace-pre-line")
             text = aciklama.text.strip()
             if text:
                 sebep_metni = text[:700] + "..." if len(text) > 700 else text
         except:
-            print("⚠️ Açıklama bulunamadı.")
+            pass
 
-        # 3. DURUM: class="... rounded-full" -> Kesin Boykot
+        # 3. DURUM: (Verdiğin HTML yapısı)
         try:
-            # rounded-full sınıfına sahip span'i bul
             durum_etiketi = driver.find_element(By.CSS_SELECTOR, "span.rounded-full")
             raw_text = durum_etiketi.text.strip()
             
@@ -92,7 +88,7 @@ def detaylari_getir(driver, link):
             elif "İnsafa" in raw_text: durum_emoji, durum_metni = "🟠", "İNSAFA BAĞLI"
             elif "Alınabilir" in raw_text: durum_emoji, durum_metni = "🟢", "ALINABİLİR"
         except:
-             print("⚠️ Durum etiketi bulunamadı.")
+             pass
 
     except Exception as e:
         print(f"⚠️ Detay fonksiyonunda hata: {e}")
@@ -100,7 +96,7 @@ def detaylari_getir(driver, link):
     return logo_url, sebep_metni, durum_emoji, durum_metni
 
 def hatirlat():
-    print("🌍 Hatırlatıcı Başlıyor (HTML Hedefli Mod)...")
+    print("🌍 Hatırlatıcı Başlıyor (Link Üretme Modu)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -114,47 +110,43 @@ def hatirlat():
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
         driver.get(URL)
         
-        # Marka isimlerinin yüklenmesini bekle (Verdiğin h3 class'ına göre)
         wait = WebDriverWait(driver, 25)
-        # Class: text-lg font-bold
-        print("⏳ Marka isimleri aranıyor...")
+        # Marka başlıklarının yüklenmesini bekle
+        print("⏳ Marka isimleri bekleniyor...")
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h3.text-lg.font-bold")))
         
         # Sayfadaki TÜM marka başlıklarını al
         basliklar = driver.find_elements(By.CSS_SELECTOR, "h3.text-lg.font-bold")
         
         site_listesi = []
-        
-        print(f"🔍 {len(basliklar)} adet başlık bulundu. Linkleri çözümleniyor...")
+        print(f"🔍 {len(basliklar)} adet başlık bulundu.")
 
+        # --- DÜZELTME: LİNKİ BİZ ÜRETİYORUZ ---
         for h3 in basliklar:
-            try:
-                ad = h3.text.strip()
-                if not ad: continue
+            text = h3.text.strip()
+            if not text: continue
+            
+            # Link Üretme Formülü:
+            # 1. Küçük harfe çevir
+            # 2. Boşlukları tire (-) yap
+            # 3. Türkçe karakterler URL formatına dönsün (Gedik Piliç -> Gedik-Pili%C3%A7 gibi)
+            
+            slug = text.lower().replace(" ", "-")
+            safe_slug = urllib.parse.quote(slug)
+            
+            # Üretilen Link
+            generated_link = f"https://bykt.org/?marka={safe_slug}"
+            
+            if (text, generated_link) not in site_listesi:
+                site_listesi.append((text, generated_link))
 
-                # ÖNEMLİ KISIM: Başlığın içindeki veya üstündeki Linki (a tag) bul
-                # XPath ile: Bu h3 elementinin bir üstündeki veya kapsayan 'a' etiketini bul.
-                try:
-                    # "./ancestor::a" -> Bu elementin atalarından 'a' olanı bul demektir.
-                    link_element = h3.find_element(By.XPATH, "./ancestor::a")
-                    link = link_element.get_attribute("href")
-                    
-                    if link and "?marka=" in link:
-                        if (ad, link) not in site_listesi:
-                            site_listesi.append((ad, link))
-                except:
-                    # Link bulunamadıysa geç
-                    continue
-            except:
-                continue
-
-        print(f"✅ Toplam {len(site_listesi)} adet marka ve link eşleştirildi.")
+        print(f"✅ Toplam {len(site_listesi)} marka listeye alındı.")
         
         if not site_listesi:
-            print("❌ HATA: Başlıklar bulundu ama linkleri çıkarılamadı.")
+            print("❌ HATA: Başlıklar var ama liste oluşturulamadı.")
             return
 
-        # HAFIZA VE SEÇİM İŞLEMLERİ
+        # HAFIZA VE SEÇİM
         hatirlatilanlar = []
         if os.path.exists(HAFIZA_DOSYASI):
             with open(HAFIZA_DOSYASI, "r", encoding="utf-8") as f:
@@ -177,6 +169,7 @@ def hatirlat():
         marka_linki = secilen_veri[1]
         
         print(f"🎯 Seçilen: {marka_adi}")
+        print(f"🔗 Link: {marka_linki}")
 
         # DETAYLARI ÇEK
         logo, sebep, durum_ikon, durum_yazi = detaylari_getir(driver, marka_linki)
