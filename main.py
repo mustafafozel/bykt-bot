@@ -1,30 +1,23 @@
 import os
 import time
 import requests
-import urllib.parse # Linkleri düzeltmek için (boşlukları %20 yapar)
+import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select # Select eklendi
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- AYARLAR ---
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 KANAL_ID = os.environ["KANAL_ID"]
-
-# ÖNEMLİ: Site eğer varsayılan olarak "En Yenileri" göstermiyorsa,
-# bot sayfadaki en üstteki (belki de en popüler) markayı alır.
-# Genelde sitelerde "?sort=new" veya "?orderby=date" gibi parametreler olur.
-# Şimdilik ana sayfayı tarıyoruz.
 URL = "https://bykt.org/" 
-
 KAYIT_DOSYASI = "son_marka.txt"
 
 def telegrama_gonder(mesaj):
     send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    # disable_web_page_preview=False yaptık ki resim görünsün
     params = {"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown", "disable_web_page_preview": False}
     try:
         requests.post(send_url, params=params)
@@ -49,13 +42,33 @@ def siteyi_tara():
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
         driver.get(URL)
         
-        # Sayfanın yüklenmesini bekle
+        # Bekleme aracını hazırla
         wait = WebDriverWait(driver, 25)
-        # İlk sıradaki markayı al
+
+        # --- YENİ EKLENEN KISIM: SIRALAMAYI DEĞİŞTİR ---
+        print("⏳ Sıralama menüsü aranıyor...")
+        try:
+            # İçinde value="newest" olan select (açılır menü) elementini bul
+            # XPath: Tüm select etiketlerine bak, içinde value='newest' olan option var mı?
+            select_element = wait.until(EC.presence_of_element_located((By.XPATH, "//select[./option[@value='newest']]")))
+            
+            # Selenium Select aracını kullanarak seçimi yap
+            select = Select(select_element)
+            select.select_by_value("newest")
+            print("✅ 'En Yeni Eklenenler' seçildi.")
+            
+            # Listenin yenilenmesi için 5 saniye bekle (Site JS ile yükleniyor)
+            time.sleep(5)
+            
+        except Exception as e:
+            print(f"⚠️ Sıralama değiştirilemedi, varsayılan liste kullanılıyor. Hata: {e}")
+        # ------------------------------------------------
+
+        # Şimdi en üstteki markayı al
         marka_elementi = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h3.text-lg")))
         
         yeni_marka = marka_elementi.text.strip()
-        print(f"✅ Siteden Gelen Veri: {yeni_marka}")
+        print(f"✅ Siteden Gelen Veri (Newest): {yeni_marka}")
 
     except Exception as e:
         print(f"❌ Hata: {e}")
@@ -74,16 +87,14 @@ def siteyi_tara():
     if yeni_marka != eski_marka:
         print(f"🔔 Yeni marka tespit edildi: {yeni_marka}")
         
-        # --- LİNKİ DÜZENLEME KISMI ---
-        # Marka adındaki boşlukları ve özel karakterleri link formatına çevirir
-        # Örnek: "Mars Inc." -> "Mars+Inc." veya "Mars%20Inc."
+        # Link oluştur
         marka_slug = urllib.parse.quote(yeni_marka)
         ozel_link = f"https://bykt.org/?marka={marka_slug}"
         
         mesaj = f"🚨 **LİSTEYE YENİ MARKA EKLENDİ!**\n\n🏷 **Marka:** {yeni_marka}\n🔗 **Detaylı İncele:** {ozel_link}\n\n#Boykot #YeniEkleme"
         telegrama_gonder(mesaj)
         
-        # Yeni markayı dosyaya yaz (HATA BURADAYDI, ARTIK İZİN VAR)
+        # Kaydet
         with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
             f.write(yeni_marka)
     else:
