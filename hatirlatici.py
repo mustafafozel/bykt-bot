@@ -42,66 +42,65 @@ def telegrama_gonder_foto(resim_url, mesaj, buton_linki, marka_adi):
     try:
         print(f"📨 Mesaj gönderiliyor: {marka_adi}")
         response = requests.post(send_url, data=data)
-        if response.status_code == 200:
-            print("✅ BAŞARILI: Mesaj iletildi.")
-        else:
+        if response.status_code != 200:
              print(f"⚠️ Telegram Hatası: {response.text}")
+             # Resim hatası varsa sadece metin gönder
              if "Wrong file identifier" in response.text or "image" in response.text:
                  requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
                                data={"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown"})
     except Exception as e:
         print(f"Bağlantı Hatası: {e}")
 
-# --- DETAYLARI ÇEKME ---
+# --- DETAYLARI ÇEKME (Senin Verdiğin HTML Kodlarına Göre) ---
 def detaylari_getir(driver, link):
     print(f"🕵️‍♂️ Detaylara gidiliyor: {link}")
     driver.get(link)
-    time.sleep(2) # Sayfanın oturması için kısa bekleme
+    wait = WebDriverWait(driver, 15)
     
+    # Varsayılanlar
     logo_url = "https://bykt.org/favicon.ico"
     sebep_metni = "Detaylı bilgi için butona tıklayınız."
     durum_emoji = "❓"
     durum_metni = "Belirtilmemiş"
 
     try:
-        # LOGO (SVG harici ilk resmi al)
+        # 1. LOGO: class="w-20 h-20 rounded-lg object-contain..."
         try:
-            imgs = driver.find_elements(By.TAG_NAME, "img")
-            for img in imgs:
-                src = img.get_attribute("src")
-                # Küçük ikonları ve svgleri ele, ana resmi bulmaya çalış
-                if src and "svg" not in src and "data:image" not in src:
-                    if "logo" in src or "uploads" in src or "images" in src:
-                        logo_url = src
-                        break
-        except: pass
+            logo_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img.w-20.h-20.object-contain")))
+            src = logo_element.get_attribute("src")
+            if src: logo_url = src
+        except:
+            print("⚠️ Logo bulunamadı.")
 
-        # AÇIKLAMA (En uzun paragrafı al)
+        # 2. AÇIKLAMA: class="... whitespace-pre-line"
         try:
-            paragraphs = driver.find_elements(By.TAG_NAME, "p")
-            en_uzun_p = ""
-            for p in paragraphs:
-                txt = p.text.strip()
-                if len(txt) > len(en_uzun_p):
-                    en_uzun_p = txt
+            # whitespace-pre-line sınıfını arıyoruz
+            aciklama = driver.find_element(By.CSS_SELECTOR, "p.whitespace-pre-line")
+            text = aciklama.text.strip()
+            if text:
+                sebep_metni = text[:700] + "..." if len(text) > 700 else text
+        except:
+            print("⚠️ Açıklama bulunamadı.")
+
+        # 3. DURUM: class="... rounded-full" -> Kesin Boykot
+        try:
+            # rounded-full sınıfına sahip span'i bul
+            durum_etiketi = driver.find_element(By.CSS_SELECTOR, "span.rounded-full")
+            raw_text = durum_etiketi.text.strip()
             
-            if len(en_uzun_p) > 20:
-                sebep_metni = en_uzun_p[:600] + "..."
-        except: pass
+            if "Kesin" in raw_text: durum_emoji, durum_metni = "🔴", "KESİN BOYKOT"
+            elif "İnsafa" in raw_text: durum_emoji, durum_metni = "🟠", "İNSAFA BAĞLI"
+            elif "Alınabilir" in raw_text: durum_emoji, durum_metni = "🟢", "ALINABİLİR"
+        except:
+             print("⚠️ Durum etiketi bulunamadı.")
 
-        # DURUM
-        try:
-            src = driver.page_source
-            if "Kesin Boykot" in src: durum_emoji, durum_metni = "🔴", "KESİN BOYKOT"
-            elif "İnsafa Bağlı" in src: durum_emoji, durum_metni = "🟠", "İNSAFA BAĞLI"
-            elif "Alınabilir" in src: durum_emoji, durum_metni = "🟢", "ALINABİLİR"
-        except: pass
+    except Exception as e:
+        print(f"⚠️ Detay fonksiyonunda hata: {e}")
 
-    except: pass
     return logo_url, sebep_metni, durum_emoji, durum_metni
 
 def hatirlat():
-    print("🌍 Hatırlatıcı Başlıyor (Geniş Arama Modu)...")
+    print("🌍 Hatırlatıcı Başlıyor (HTML Hedefli Mod)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -115,50 +114,47 @@ def hatirlat():
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
         driver.get(URL)
         
-        # Sadece sayfanın tamamen yüklenmesini bekle (body tag'i)
-        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        time.sleep(5) # Garanti bekleme
+        # Marka isimlerinin yüklenmesini bekle (Verdiğin h3 class'ına göre)
+        wait = WebDriverWait(driver, 25)
+        # Class: text-lg font-bold
+        print("⏳ Marka isimleri aranıyor...")
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h3.text-lg.font-bold")))
         
-        # Sayfadaki TÜM linkleri al
-        tum_linkler = driver.find_elements(By.TAG_NAME, "a")
+        # Sayfadaki TÜM marka başlıklarını al
+        basliklar = driver.find_elements(By.CSS_SELECTOR, "h3.text-lg.font-bold")
         
         site_listesi = []
         
-        # Python tarafında filtrele (Selenium'dan daha güvenilir)
-        for eleman in tum_linkler:
+        print(f"🔍 {len(basliklar)} adet başlık bulundu. Linkleri çözümleniyor...")
+
+        for h3 in basliklar:
             try:
-                href = eleman.get_attribute("href")
-                text = eleman.text.strip() # Linkin içindeki yazı (Marka adı genelde buradadır)
-                
-                # Eğer link boşsa veya marka linki değilse geç
-                if not href or "?marka=" not in href:
+                ad = h3.text.strip()
+                if not ad: continue
+
+                # ÖNEMLİ KISIM: Başlığın içindeki veya üstündeki Linki (a tag) bul
+                # XPath ile: Bu h3 elementinin bir üstündeki veya kapsayan 'a' etiketini bul.
+                try:
+                    # "./ancestor::a" -> Bu elementin atalarından 'a' olanı bul demektir.
+                    link_element = h3.find_element(By.XPATH, "./ancestor::a")
+                    link = link_element.get_attribute("href")
+                    
+                    if link and "?marka=" in link:
+                        if (ad, link) not in site_listesi:
+                            site_listesi.append((ad, link))
+                except:
+                    # Link bulunamadıysa geç
                     continue
-                
-                # Eğer text boşsa, belki h3 içindedir, onu kontrol et
-                if not text:
-                    try:
-                        h3 = eleman.find_element(By.TAG_NAME, "h3")
-                        text = h3.text.strip()
-                    except:
-                        pass
-                
-                # Hala isim yoksa geç, varsa listeye ekle
-                if text and href:
-                    # Aynı markayı tekrar eklememek için kontrol
-                    if (text, href) not in site_listesi:
-                        site_listesi.append((text, href))
-                        
             except:
                 continue
 
-        print(f"✅ Toplam {len(site_listesi)} marka bulundu.")
+        print(f"✅ Toplam {len(site_listesi)} adet marka ve link eşleştirildi.")
         
         if not site_listesi:
-            print("❌ HATA: Sayfa yüklendi ama marka linki bulunamadı. Site yapısı değişmiş olabilir.")
-            print("Sayfa Kaynağı Özeti:", driver.page_source[:500]) # Hata ayıklama için
+            print("❌ HATA: Başlıklar bulundu ama linkleri çıkarılamadı.")
             return
 
-        # HAFIZA VE SEÇİM
+        # HAFIZA VE SEÇİM İŞLEMLERİ
         hatirlatilanlar = []
         if os.path.exists(HAFIZA_DOSYASI):
             with open(HAFIZA_DOSYASI, "r", encoding="utf-8") as f:
