@@ -1,0 +1,29 @@
+name: Gunluk Hatirlatici
+
+on:
+  schedule:
+    # UTC Saatiyle 07:00 (TR 10:00) ve 17:00 (TR 20:00)
+    - cron: '0 7,17 * * *'
+  workflow_dispatch: # Manuel test için
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Depoyu Çek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Kütüphaneleri Yükle
+        run: pip install -r requirements.txt
+
+      - name: Hatirlaticiyi Calistir
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          KANAL_ID: ${{ secrets.KANAL_ID }}
+        run: python hatirlatici.py
