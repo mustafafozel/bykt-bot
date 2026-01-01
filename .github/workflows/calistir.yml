@@ -2,13 +2,13 @@ name: Bykt Bot Kontrolcusu
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # 30 dakikada bir çalış
+    # TR Saatiyle Sabah 08:00'den Akşam 23:30'a kadar çalışır.
+    # Gece 23:30 ile Sabah 08:00 arası sessiz moda geçer.
+    - cron: '*/30 5-20 * * *'
   workflow_dispatch:
 
-# --- BURASI YENİ EKLENDİ (İZİN AYARI) ---
 permissions:
   contents: write
-# ----------------------------------------
 
 jobs:
   build:
