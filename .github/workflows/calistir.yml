@@ -2,13 +2,18 @@ name: Bykt Bot Kontrolcusu
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # Her 30 dakikada bir çalışır
-  workflow_dispatch: # Manuel çalıştırmak için buton ekler
+    - cron: '*/30 * * * *' # 30 dakikada bir çalış
+  workflow_dispatch:
+
+# --- BURASI YENİ EKLENDİ (İZİN AYARI) ---
+permissions:
+  contents: write
+# ----------------------------------------
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Depoyu Çek
         uses: actions/checkout@v3
