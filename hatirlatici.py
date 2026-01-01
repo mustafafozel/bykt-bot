@@ -18,7 +18,7 @@ KANAL_ID = os.environ["KANAL_ID"]
 URL = "https://bykt.org/"
 HAFIZA_DOSYASI = "hatirlatilanlar.txt"
 
-# --- MESAJ GÖNDERME ---
+# --- GÜNCELLENMİŞ MESAJ GÖNDERME (İndir ve Yükle Yöntemi) ---
 def telegrama_gonder_foto(resim_url, mesaj, buton_linki, marka_adi):
     send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     clean_kanal_id = KANAL_ID.replace('@','')
@@ -30,25 +30,52 @@ def telegrama_gonder_foto(resim_url, mesaj, buton_linki, marka_adi):
             [{"text": "📢 Kanalı Paylaş", "url": kanal_paylas_linki}]
         ]
     }
-
-    data = {
-        "chat_id": KANAL_ID,
-        "photo": resim_url,
-        "caption": mesaj,
-        "parse_mode": "Markdown",
-        "reply_markup": json.dumps(reply_markup)
-    }
     
+    # 1. Önce sadece Metin gönderme fonksiyonu (Yedek plan)
+    def sadece_metin_gonder():
+        print("🔄 Resim gönderilemedi, sadece metin gönderiliyor...")
+        try:
+            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
+                          data={"chat_id": KANAL_ID, 
+                                "text": mesaj, 
+                                "parse_mode": "Markdown", 
+                                "reply_markup": json.dumps(reply_markup)})
+            print("✅ Metin mesajı iletildi.")
+        except Exception as e:
+            print(f"❌ Metin de gönderilemedi: {e}")
+
+    # 2. Resmi indirmeyi ve yüklemeyi dene
     try:
-        print(f"📨 Mesaj gönderiliyor: {marka_adi}")
-        response = requests.post(send_url, data=data)
-        if response.status_code != 200:
-             print(f"⚠️ Telegram Hatası: {response.text}")
-             if "Wrong file identifier" in response.text or "image" in response.text:
-                 requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                               data={"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown"})
+        print(f"📥 Resim indiriliyor: {resim_url}")
+        
+        # Resmi Python ile indir
+        img_response = requests.get(resim_url, timeout=10)
+        
+        if img_response.status_code == 200:
+            # İndirilen veriyi Telegram'a dosya olarak gönder (files parametresi)
+            files = {'photo': img_response.content}
+            data = {
+                "chat_id": KANAL_ID,
+                "caption": mesaj,
+                "parse_mode": "Markdown",
+                "reply_markup": json.dumps(reply_markup)
+            }
+            
+            print(f"📨 Telegram'a yükleniyor...")
+            response = requests.post(send_url, data=data, files=files)
+            
+            if response.status_code == 200:
+                print("✅ BAŞARILI: Resim ve mesaj iletildi.")
+            else:
+                print(f"⚠️ Telegram Yükleme Hatası: {response.text}")
+                sadece_metin_gonder() # Hata varsa metin at
+        else:
+            print(f"⚠️ Resim indirilemedi (Status: {img_response.status_code})")
+            sadece_metin_gonder()
+
     except Exception as e:
-        print(f"Bağlantı Hatası: {e}")
+        print(f"⚠️ Resim işleme hatası: {e}")
+        sadece_metin_gonder()
 
 # --- DETAYLARI ÇEKME ---
 def detaylari_getir(driver, link):
@@ -56,21 +83,27 @@ def detaylari_getir(driver, link):
     driver.get(link)
     wait = WebDriverWait(driver, 15)
     
-    logo_url = "https://bykt.org/favicon.ico"
+    # Varsayılanlar
+    logo_url = None # Boş bırak, bulunamazsa metin gitsin
     sebep_metni = "Detaylı bilgi için butona tıklayınız."
     durum_emoji = "❓"
     durum_metni = "Belirtilmemiş"
 
     try:
-        # 1. LOGO: (Verdiğin HTML yapısı)
+        # LOGO
         try:
+            # HTML yapına uygun (SVG olmayan, object-contain olan)
             logo_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img.w-20.h-20.object-contain")))
             src = logo_element.get_attribute("src")
-            if src: logo_url = src
+            if src and "svg" not in src and "data:image" not in src: 
+                logo_url = src
+                # Eğer relative link ise (başında https yoksa) ekle
+                if logo_url.startswith("/"):
+                    logo_url = "https://bykt.org" + logo_url
         except:
             pass
 
-        # 2. AÇIKLAMA: (Verdiğin HTML yapısı)
+        # AÇIKLAMA
         try:
             aciklama = driver.find_element(By.CSS_SELECTOR, "p.whitespace-pre-line")
             text = aciklama.text.strip()
@@ -79,7 +112,7 @@ def detaylari_getir(driver, link):
         except:
             pass
 
-        # 3. DURUM: (Verdiğin HTML yapısı)
+        # DURUM
         try:
             durum_etiketi = driver.find_element(By.CSS_SELECTOR, "span.rounded-full")
             raw_text = durum_etiketi.text.strip()
@@ -96,7 +129,7 @@ def detaylari_getir(driver, link):
     return logo_url, sebep_metni, durum_emoji, durum_metni
 
 def hatirlat():
-    print("🌍 Hatırlatıcı Başlıyor (Link Üretme Modu)...")
+    print("🌍 Hatırlatıcı Başlıyor (İndir-Yükle Modu)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -111,30 +144,20 @@ def hatirlat():
         driver.get(URL)
         
         wait = WebDriverWait(driver, 25)
-        # Marka başlıklarının yüklenmesini bekle
         print("⏳ Marka isimleri bekleniyor...")
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h3.text-lg.font-bold")))
         
-        # Sayfadaki TÜM marka başlıklarını al
         basliklar = driver.find_elements(By.CSS_SELECTOR, "h3.text-lg.font-bold")
         
         site_listesi = []
         print(f"🔍 {len(basliklar)} adet başlık bulundu.")
 
-        # --- DÜZELTME: LİNKİ BİZ ÜRETİYORUZ ---
         for h3 in basliklar:
             text = h3.text.strip()
             if not text: continue
             
-            # Link Üretme Formülü:
-            # 1. Küçük harfe çevir
-            # 2. Boşlukları tire (-) yap
-            # 3. Türkçe karakterler URL formatına dönsün (Gedik Piliç -> Gedik-Pili%C3%A7 gibi)
-            
             slug = text.lower().replace(" ", "-")
             safe_slug = urllib.parse.quote(slug)
-            
-            # Üretilen Link
             generated_link = f"https://bykt.org/?marka={safe_slug}"
             
             if (text, generated_link) not in site_listesi:
@@ -143,10 +166,10 @@ def hatirlat():
         print(f"✅ Toplam {len(site_listesi)} marka listeye alındı.")
         
         if not site_listesi:
-            print("❌ HATA: Başlıklar var ama liste oluşturulamadı.")
+            print("❌ HATA: Liste boş.")
             return
 
-        # HAFIZA VE SEÇİM
+        # HAFIZA
         hatirlatilanlar = []
         if os.path.exists(HAFIZA_DOSYASI):
             with open(HAFIZA_DOSYASI, "r", encoding="utf-8") as f:
@@ -169,9 +192,8 @@ def hatirlat():
         marka_linki = secilen_veri[1]
         
         print(f"🎯 Seçilen: {marka_adi}")
-        print(f"🔗 Link: {marka_linki}")
 
-        # DETAYLARI ÇEK
+        # DETAY
         logo, sebep, durum_ikon, durum_yazi = detaylari_getir(driver, marka_linki)
 
         # MESAJ
@@ -185,7 +207,14 @@ def hatirlat():
             f"#BoykotHatırlatma #{marka_adi.replace(' ','')}"
         )
 
-        telegrama_gonder_foto(logo, mesaj, marka_linki, marka_adi)
+        # GÖNDERİM KISMI
+        if logo:
+            telegrama_gonder_foto(logo, mesaj, marka_linki, marka_adi)
+        else:
+            print("⚠️ Logo bulunamadı, metin gönderiliyor...")
+            # Logo yoksa metin gönder fonksiyonunu burada simüle ediyoruz
+            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
+                          data={"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown"})
 
         # KAYDET
         mod = "w" if sifirlama_yapildi else "a"
