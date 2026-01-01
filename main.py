@@ -6,7 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait, Select # Select eklendi
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -21,7 +21,7 @@ def telegrama_gonder(mesaj):
     params = {"chat_id": KANAL_ID, "text": mesaj, "parse_mode": "Markdown", "disable_web_page_preview": False}
     try:
         requests.post(send_url, params=params)
-        print("📨 Mesaj gönderildi.")
+        time.sleep(1) 
     except Exception as e:
         print(f"Mesaj hatası: {e}")
 
@@ -36,39 +36,33 @@ def siteyi_tara():
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36")
 
     driver = None
-    yeni_marka = None
+    yeni_markalar_listesi = []
 
     try:
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
         driver.get(URL)
-        
-        # Bekleme aracını hazırla
         wait = WebDriverWait(driver, 25)
 
-        # --- YENİ EKLENEN KISIM: SIRALAMAYI DEĞİŞTİR ---
-        print("⏳ Sıralama menüsü aranıyor...")
+        # --- SIRALAMA DEĞİŞTİRME ---
         try:
-            # İçinde value="newest" olan select (açılır menü) elementini bul
-            # XPath: Tüm select etiketlerine bak, içinde value='newest' olan option var mı?
+            print("⏳ Sıralama 'En Yeni' yapılıyor...")
             select_element = wait.until(EC.presence_of_element_located((By.XPATH, "//select[./option[@value='newest']]")))
-            
-            # Selenium Select aracını kullanarak seçimi yap
             select = Select(select_element)
             select.select_by_value("newest")
-            print("✅ 'En Yeni Eklenenler' seçildi.")
-            
-            # Listenin yenilenmesi için 5 saniye bekle (Site JS ile yükleniyor)
             time.sleep(5)
-            
         except Exception as e:
-            print(f"⚠️ Sıralama değiştirilemedi, varsayılan liste kullanılıyor. Hata: {e}")
-        # ------------------------------------------------
+            print(f"⚠️ Sıralama hatası: {e}")
 
-        # Şimdi en üstteki markayı al
-        marka_elementi = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h3.text-lg")))
+        # --- VERİ ÇEKME ---
+        # İlk 15 markayı al
+        marka_elementleri = driver.find_elements(By.CSS_SELECTOR, "h3.text-lg")
         
-        yeni_marka = marka_elementi.text.strip()
-        print(f"✅ Siteden Gelen Veri (Newest): {yeni_marka}")
+        for eleman in marka_elementleri[:15]:
+            text = eleman.text.strip()
+            if text:
+                yeni_markalar_listesi.append(text)
+        
+        print(f"✅ Çekilen liste: {yeni_markalar_listesi[:5]}")
 
     except Exception as e:
         print(f"❌ Hata: {e}")
@@ -76,27 +70,48 @@ def siteyi_tara():
     finally:
         if driver: driver.quit()
 
-    if not yeni_marka: return
+    if not yeni_markalar_listesi:
+        return
 
-    # --- KONTROL VE KAYIT ---
-    eski_marka = ""
+    # --- KONTROL ---
+    eski_son_marka = ""
     if os.path.exists(KAYIT_DOSYASI):
         with open(KAYIT_DOSYASI, "r", encoding="utf-8") as f:
-            eski_marka = f.read().strip()
+            eski_son_marka = f.read().strip()
 
-    if yeni_marka != eski_marka:
-        print(f"🔔 Yeni marka tespit edildi: {yeni_marka}")
+    bildirilecek_markalar = []
+
+    if not eski_son_marka:
+        bildirilecek_markalar.append(yeni_markalar_listesi[0])
+    else:
+        for marka in yeni_markalar_listesi:
+            if marka == eski_son_marka:
+                break
+            else:
+                bildirilecek_markalar.append(marka)
+
+    # --- BİLDİRİM GÖNDERME ---
+    if bildirilecek_markalar:
+        print(f"🔔 {len(bildirilecek_markalar)} yeni marka var.")
         
-        # Link oluştur
-        marka_slug = urllib.parse.quote(yeni_marka)
-        ozel_link = f"https://bykt.org/?marka={marka_slug}"
+        for marka in reversed(bildirilecek_markalar):
+            # --- LİNK DÜZELTME KISMI ---
+            # 1. Harfleri küçült (Taşkesti -> taşkesti)
+            # 2. Boşlukları tire yap (Su -> -su)
+            slug_hazirlik = marka.lower().replace(" ", "-")
+            
+            # 3. URL uyumlu hale getir (Türkçe karakterler %C3%.. gibi kodlanır)
+            marka_slug = urllib.parse.quote(slug_hazirlik)
+            
+            ozel_link = f"https://bykt.org/?marka={marka_slug}"
+            # ---------------------------
+            
+            mesaj = f"🚨 **LİSTEYE YENİ MARKA EKLENDİ!**\n\n🏷 **Marka:** {marka}\n🔗 **Detaylı İncele:** {ozel_link}\n\n#Boykot #YeniEkleme"
+            telegrama_gonder(mesaj)
         
-        mesaj = f"🚨 **LİSTEYE YENİ MARKA EKLENDİ!**\n\n🏷 **Marka:** {yeni_marka}\n🔗 **Detaylı İncele:** {ozel_link}\n\n#Boykot #YeniEkleme"
-        telegrama_gonder(mesaj)
-        
-        # Kaydet
         with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
-            f.write(yeni_marka)
+            f.write(yeni_markalar_listesi[0])
+            
     else:
         print("💤 Değişiklik yok.")
 
