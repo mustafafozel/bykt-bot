@@ -1,0 +1,35 @@
+name: Bykt Bot Kontrolcusu
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # Her 30 dakikada bir çalışır
+  workflow_dispatch: # Manuel çalıştırmak için buton ekler
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Depoyu Çek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Kütüphaneleri Yükle
+        run: pip install -r requirements.txt
+
+      - name: Botu Çalıştır
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          KANAL_ID: ${{ secrets.KANAL_ID }}
+        run: python main.py
+
+      - name: Sonucu Kaydet
+        run: |
+          git config --global user.name 'GitHub Bot'
+          git config --global user.email 'bot@noreply.github.com'
+          git add son_marka.txt || echo "Dosya yok"
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Marka guncellendi" && git push)
