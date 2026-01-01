@@ -18,7 +18,7 @@ KANAL_ID = os.environ["KANAL_ID"]
 URL = "https://bykt.org/"
 HAFIZA_DOSYASI = "hatirlatilanlar.txt"
 
-# --- FOTOĞRAF GÖNDERME (Byte Verisi İle) ---
+# --- FOTOĞRAF GÖNDERME ---
 def telegrama_gonder_foto(resim_datalari, mesaj, buton_linki, marka_adi):
     send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     clean_kanal_id = KANAL_ID.replace('@','')
@@ -59,7 +59,7 @@ def telegrama_gonder_foto(resim_datalari, mesaj, buton_linki, marka_adi):
     except Exception as e:
         print(f"⚠️ Gönderim hatası: {e}")
 
-# --- DETAYLARI ÇEKME (DOĞRU LOGOYU BULMA) ---
+# --- DETAYLARI ÇEKME ---
 def detaylari_getir(driver, link, aranan_marka_adi):
     print(f"🕵️‍♂️ Detaylara gidiliyor: {link}")
     driver.get(link)
@@ -71,45 +71,47 @@ def detaylari_getir(driver, link, aranan_marka_adi):
     durum_metni = "Belirtilmemiş"
 
     try:
-        # 1. LOGO (İSİM EŞLEŞTİRMELİ)
-        print(f"🔍 '{aranan_marka_adi}' için doğru logo aranıyor...")
+        # 1. LOGO (İSİM EŞLEŞTİRMELİ + HD KALİTE)
+        print(f"🔍 '{aranan_marka_adi}' logusu aranıyor ve HD yapılacak...")
         try:
-            # Sayfadaki potansiyel logoları bul (object-contain class'ı olanlar)
-            # Hem ana logo hem alternatif logolar bu class'ı kullanıyor olabilir.
+            # Tüm potansiyel logoları bul
             potansiyel_logolar = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "img.object-contain")))
             
             hedef_logo = None
             
-            # Bulunan resimler arasında döngü kur
+            # Doğru logoyu bul (İsim kontrolü)
             for img in potansiyel_logolar:
                 try:
-                    alt_text = img.get_attribute("alt") # Resmin ismi (Örn: "Adidas")
-                    if alt_text:
-                        # Küçük harfe çevirip karşılaştır (adidas == adidas)
-                        # contains kontrolü yapıyoruz (Gedik Piliç içinde Gedik var mı?)
-                        if aranan_marka_adi.lower() in alt_text.lower() or alt_text.lower() in aranan_marka_adi.lower():
-                            hedef_logo = img
-                            print(f"✅ Eşleşen logo bulundu! (Alt: {alt_text})")
-                            break
-                except:
-                    continue
+                    alt_text = img.get_attribute("alt")
+                    if alt_text and (aranan_marka_adi.lower() in alt_text.lower() or alt_text.lower() in aranan_marka_adi.lower()):
+                        hedef_logo = img
+                        print(f"✅ Eşleşen logo bulundu! (Alt: {alt_text})")
+                        break
+                except: continue
             
-            # Eğer isimle bulamadıysak, mecburen sayfadaki İLK 'w-20 h-20' boyutundaki resmi al (En yüksek ihtimal)
+            # Bulunamazsa varsayılanı al
             if not hedef_logo:
-                print("⚠️ İsimle eşleşen logo bulunamadı, ana resim deneniyor...")
-                try:
-                    hedef_logo = driver.find_element(By.CSS_SELECTOR, "img.w-20.h-20.object-contain")
-                except:
-                    pass
+                try: hedef_logo = driver.find_element(By.CSS_SELECTOR, "img.w-20.h-20.object-contain")
+                except: pass
 
-            # Eğer bir logo belirlediysek ekran görüntüsünü al
             if hedef_logo:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", hedef_logo)
-                time.sleep(1) # Kaydırma sonrası bekle
+                # 🔥 SİHİRLİ DOKUNUŞ: Logoyu CSS ile devasa yap (Upscale)
+                # Arka planı beyaz yapıyoruz ki şeffaf logolar siyah görünmesin
+                script = """
+                arguments[0].style.width = '500px';
+                arguments[0].style.height = '500px';
+                arguments[0].style.objectFit = 'contain';
+                arguments[0].style.backgroundColor = 'white';
+                arguments[0].style.padding = '20px';
+                """
+                driver.execute_script(script, hedef_logo)
+                time.sleep(1) # Büyümesi için bekle
+
+                # Ekran görüntüsünü al
                 logo_data = hedef_logo.screenshot_as_png
-                print("📸 Doğru logonun görüntüsü alındı.")
+                print("📸 HD Ekran görüntüsü alındı.")
             else:
-                print("❌ Hiçbir uygun logo bulunamadı.")
+                print("❌ Uygun logo bulunamadı.")
             
         except Exception as e:
             print(f"⚠️ Logo işlem hatası: {e}")
@@ -137,7 +139,7 @@ def detaylari_getir(driver, link, aranan_marka_adi):
     return logo_data, sebep_metni, durum_emoji, durum_metni
 
 def hatirlat():
-    print("🌍 Hatırlatıcı Başlıyor (Akıllı Eşleşme Modu)...")
+    print("🌍 Hatırlatıcı Başlıyor (HD Logo Modu)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -199,10 +201,8 @@ def hatirlat():
         
         print(f"🎯 Seçilen: {marka_adi}")
 
-        # DETAYLARI ÇEK (Marka adını da gönderiyoruz ki kontrol etsin)
         logo_data, sebep, durum_ikon, durum_yazi = detaylari_getir(driver, marka_linki, marka_adi)
 
-        # MESAJ
         mesaj = (
             f"🎗 **GÜNLÜK HATIRLATMA**\n\n"
             f"Unutmayalım! ⚠️\n\n"
